@@ -84,6 +84,30 @@ func (p *nfsProvisioner) Provision(ctx context.Context, options controller.Provi
 	}
 	glog.V(4).Infof("nfs provisioner: VolumeOptions %v", options)
 
+	if options.StorageClass.Parameters["sharePath"] == "true" {
+		pv := &v1.PersistentVolume{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: options.PVName,
+			},
+			Spec: v1.PersistentVolumeSpec{
+				PersistentVolumeReclaimPolicy: *options.StorageClass.ReclaimPolicy,
+				AccessModes:                   options.PVC.Spec.AccessModes,
+				MountOptions:                  options.StorageClass.MountOptions,
+				Capacity: v1.ResourceList{
+					v1.ResourceName(v1.ResourceStorage): options.PVC.Spec.Resources.Requests[v1.ResourceName(v1.ResourceStorage)],
+				},
+				PersistentVolumeSource: v1.PersistentVolumeSource{
+					NFS: &v1.NFSVolumeSource{
+						Server:   p.server,
+						Path:     p.path,
+						ReadOnly: false,
+					},
+				},
+			},
+		}
+		return pv, controller.ProvisioningFinished, nil
+	}
+
 	pvcNamespace := options.PVC.Namespace
 	pvcName := options.PVC.Name
 
@@ -152,6 +176,10 @@ func (p *nfsProvisioner) Delete(ctx context.Context, volume *v1.PersistentVolume
 	storageClass, err := p.getClassForVolume(ctx, volume)
 	if err != nil {
 		return err
+	}
+
+	if storageClass.Parameters["sharePath"] == "true" {
+		return nil
 	}
 
 	// Determine if the "onDelete" parameter exists.
